@@ -45,7 +45,7 @@ class Game
     public int OpponentScore { get; set; }
     public List<Entity> Radars { get; set; } = new List<Entity>();
     public List<Entity> Traps { get; set; } = new List<Entity>();
-    public List<Entity> OreVeils { get; set; } = new List<Entity>();
+    public List<OreVeil> OreVeils { get; set; } = new List<OreVeil>();
 
     public Game(int width, int height)
     {
@@ -68,9 +68,8 @@ class Game
 
     public static void AddOrUpdateRobotInfo(Dictionary<int, Robot> collection, Robot src)
     {
-        if (collection.Keys.Contains(src.Id))
+        if (collection.TryGetValue(src.Id, out var robot))
         {
-            var robot = collection[src.Id];
             robot.Item = src.Item;
             robot.Pos = src.Pos;
         }
@@ -99,14 +98,18 @@ class Coord
         return Math.Abs(X - other.X) + Math.Abs(Y - other.Y);
     }
 
-    public override bool Equals(object obj)
+
+    public static bool operator ==(Coord obj1, Coord obj2) => Equals2(obj1, obj2);
+    public static bool operator !=(Coord obj1, Coord obj2) => !Equals2(obj1, obj2);
+    public override bool Equals(object obj) => Equals2(this, (Coord)obj);
+    protected bool Equals(Coord other) => Equals2(this, other);
+    protected static bool Equals2(Coord obj1, Coord obj2)
     {
-        if (obj == null)
+        if (Object.ReferenceEquals(obj1, obj2))
+            return true;
+        if (Object.ReferenceEquals(null, obj2) || Object.ReferenceEquals(obj1, null))
             return false;
-        if (this.GetType() != obj.GetType())
-            return false;
-        Coord other = (Coord)obj;
-        return X == other.X && Y == other.Y;
+        return obj1.X == obj2.X && obj1.Y == obj2.Y;
     }
 
     public override int GetHashCode()
@@ -115,6 +118,16 @@ class Coord
     }
 }
 
+class OreVeil
+{
+    public Coord Pos { get; set; }
+    public int Count { get; set; }
+    public OreVeil(Coord pos, int count)
+    {
+        Pos = pos;
+        Count = count;
+    }
+}
 class Entity
 {
     public int Id { get; set; }
@@ -128,8 +141,6 @@ class Entity
         Item = item;
     }
 }
-
-
 
 class Robot : Entity
 {
@@ -191,6 +202,7 @@ class Player
             inputs = Console.ReadLine().Split(' ');
             game.MyScore = int.Parse(inputs[0]); // Amount of ore delivered
             game.OpponentScore = int.Parse(inputs[1]);
+            game.OreVeils.Clear();
             for (int i = 0; i < height; i++)
             {
                 inputs = Console.ReadLine().Split(' ');
@@ -199,6 +211,8 @@ class Player
                     string ore = inputs[2 * j]; // amount of ore or "?" if unknown
                     int hole = int.Parse(inputs[2 * j + 1]); // 1 if cell has a hole
                     game.Cells[j, i].Update(ore, hole);
+                    if (game.Cells[j, i].Known && game.Cells[j, i].Ore > 0)
+                        game.OreVeils.Add(new OreVeil(new Coord(j, i), int.Parse(ore)));
                 }
             }
 
@@ -208,7 +222,6 @@ class Player
             int trapCooldown = int.Parse(inputs[2]); // turns left until a new trap can be requested
             game.Radars.Clear();
             game.Traps.Clear();
-            game.OreVeils.Clear();
 
             for (int i = 0; i < entityCount; i++)
             {
@@ -237,24 +250,24 @@ class Player
                     case EntityType.TRAP:
                         game.Traps.Add(new Entity(id, coord, item));
                         break;
-                    case EntityType.ORE:
-                        game.OreVeils.Add(new Entity(id, coord, item));
-                        break;
                 }
             }
 
             List<string> actionList = new List<String>();
+            var enumerator = game.MyRobots.GetEnumerator();
+            enumerator.MoveNext();
             for (int i = 0; i < 5; i++)
             {
                 // To debug: Console.Error.WriteLine("Debug messages...");
-                Robot robot = game.MyRobots[i];
+                Robot robot = enumerator.Current.Value;
+                enumerator.MoveNext();// game.MyRobots[i];
 
                 string action = Robot.Wait("C# Starter");
 
                 //LOGIC block
                 if (i == 0)
                 {
-                    action = RadarPlacer(robot, radarCooldown);
+                    action = RadarPlacer(robot, radarCooldown, game);
                 }
                 else
                 {
@@ -271,19 +284,21 @@ class Player
         }
     }
 
-    string RadarPlacer(Robot robot, int radarCooldown)
+    string RadarPlacer(Robot robot, int radarCooldown, Game game)
     {
         Console.Error.WriteLine(robot.Item);
         if (robot.Item == EntityType.RADAR)
         {
-            var coords = GetPointForRadarPlacer(robot);
+            var coords = GetPointForRadarPlacer(robot, game.Radars);
+            if (coords == null)
+                return DiggerIssue(robot, game);
             if (!robot.Pos.Equals(coords))
             {
                 return Robot.Move(coords, $"Moving to {coords.X}, {coords.Y}");
             }
             return Robot.Dig(coords, "Placing radar");
         }
-        if (robot.Item == EntityType.NONE)
+        if (robot.Item == EntityType.NONE || robot.Item == EntityType.ORE)
         {
             return Robot.Request(EntityType.RADAR, "Requesting radar");
         }
@@ -291,9 +306,20 @@ class Player
     }
 
     //VLAD's method
-    Coord GetPointForRadarPlacer(Robot robot)
+    Coord GetPointForRadarPlacer(Robot robot, List<Entity> radars)
     {
-        return new Coord(4, 2);
+        var list = new[] {
+            new Coord(4, 2),
+            new Coord(4, 8),
+            new Coord(4, 12),
+            new Coord(10, 2),
+            new Coord(10, 8),
+            new Coord(10, 12),
+            new Coord(16, 2),
+            new Coord(16, 8),
+            new Coord(16, 12),
+        };
+        return list.FirstOrDefault(x => radars.All(r => r.Pos != x));
     }
 
     string DiggerIssue(Robot robot, Game game)
