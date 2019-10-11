@@ -298,7 +298,7 @@ class Player
 			actionList.ForEach(Console.WriteLine);
 		}
 	}
-
+    
 	bool needToRequestTrap(out int robotId)
 	{
 		robotId = default;
@@ -319,19 +319,18 @@ class Player
 	{
 		var minePlacer = game.MyRobots.Select(x => x.Value).Where(x => x.Id == (int)game.robotWithTrapId).FirstOrDefault();
 
-		var oreVeilToPlace = game.OreVeils.OrderBy(x => x.Pos.Distance(minePlacer.Pos))
-			.FirstOrDefault();
+		var oreVeilToPlace = game.OreVeils.Where(x => game.Traps.All(t => t.Pos != x.Pos)).OrderBy(x => x.Pos.Distance(minePlacer.Pos)) //set trap safely
+            .FirstOrDefault();
 		if(oreVeilToPlace == null)
 		{
 			return DiggerIssue(robot, game);
 		}
 		var coords = oreVeilToPlace.Pos;
 
-		if(oreVeilToPlace.Pos.Distance(minePlacer.Pos) < 2)
-		{
-			return Robot.Dig(coords, "Placing trap");
-		} else
-			return (Robot.Move(coords, $"Moving to ({coords.X}, {coords.Y}) for placing trap"));
+        if (oreVeilToPlace.Pos.Distance(minePlacer.Pos) < 2)
+            return Robot.Dig(coords, "Placing trap");
+        else
+            return (Robot.Move(coords, $"Moving to ({coords.X}, {coords.Y}) for placing trap"));
 	}
 
 	string RadarPlacer(Robot robot, int radarCooldown, Game game)
